@@ -32,7 +32,7 @@ def prepare_data(path, mtime):
     clean, log = preprocessing.clean_data(raw)
     data = preprocessing.add_features(clean)
     corr = preprocessing.correlation_matrix(data)
-    selected, dropped = preprocessing.select_features(corr)
+    selected, dropped = preprocessing.select_features(corr, df=data)
     return {"raw": raw, "report": report, "clean": clean, "log": log, "data": data,
             "corr": corr, "selected": selected, "dropped": dropped}
 
@@ -269,11 +269,15 @@ elif page == PAGES[3]:
 
     st.subheader("Результат автоматичного відбору")
     st.write("Ознаки впорядковано за силою зв'язку з несправністю. З кожної пари сильно "
-             "корельованих ознак залишається та, що сильніше пов'язана з цільовою змінною.")
-    for feat, kept in bundle["dropped"].items():
-        st.write(f"❌ **{label(feat)}** вилучено — сильна кореляція з ознакою «{label(kept)}» "
-                 f"(r = {corr.loc[feat, kept]:.3f}).")
+             "корельованих ознак залишається та, що сильніше пов'язана з цільовою змінною. "
+             "Далі перевіряється мультиколінеарність за коефіцієнтом інфляції дисперсії "
+             f"VIF = 1 / (1 − R²); ознаки з VIF > {config.VIF_THRESHOLD} послідовно вилучаються.")
+    for feat, reason in bundle["dropped"].items():
+        st.write(f"❌ **{label(feat)}** вилучено — {reason}.")
     st.success("Відібрані ознаки: " + ", ".join(label(f) for f in bundle["selected"]))
+    vif_values = preprocessing.vif(data, bundle["selected"]).round(2)
+    st.dataframe(pd.DataFrame({"Ознака": [label(f) for f in vif_values.index],
+                               "VIF": vif_values.values}), hide_index=True)
 
     st.pyplot(charts.distributions(data, preprocessing.CANDIDATE_FEATURES[1:]))
 

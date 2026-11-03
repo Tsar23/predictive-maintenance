@@ -115,22 +115,57 @@ def strong_pairs(corr, threshold=config.CORR_THRESHOLD):
     return pairs
 
 
-def select_features(corr, threshold=config.CORR_THRESHOLD):
-    """Жадібний відбір ознак.
+def vif(df, features):
+    """Коефіцієнти інфляції дисперсії VIF = 1 / (1 - R²) для кожної ознаки."""
+    X = df[features].to_numpy(dtype=float)
+    X = (X - X.mean(axis=0)) / X.std(axis=0)
+    result = {}
+    for j, feat in enumerate(features):
+        y = X[:, j]
+        others = np.delete(X, j, axis=1)
+        A = np.column_stack([np.ones(len(y)), others])
+        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+        resid = y - A @ coef
+        r2 = 1 - resid.var() / y.var()
+        result[feat] = np.inf if r2 >= 1 - 1e-9 else 1 / (1 - r2)
+    return pd.Series(result)
 
-    Ознаки впорядковуються за силою зв'язку з цільовою змінною. Ознака
-    залишається, якщо вона не має сильної кореляції з жодною з уже відібраних.
-    Повертає (відібрані ознаки, словник {вилучена ознака: причина}).
+
+def select_features(corr, threshold=config.CORR_THRESHOLD, df=None,
+                    vif_threshold=config.VIF_THRESHOLD):
+    """Відбір ознак у два етапи.
+
+    1) Ознаки впорядковуються за силою зв'язку з цільовою змінною; ознака
+       залишається, якщо вона не має сильної кореляції з жодною з уже відібраних.
+    2) Якщо передано дані (df), перевіряється мультиколінеарність: поки
+       найбільший VIF перевищує поріг, вилучається ознака з найбільшим VIF
+       (серед рівних — слабше пов'язана з цільовою змінною).
+    Повертає (відібрані ознаки, словник {вилучена ознака: пояснення}).
     """
     features = [c for c in corr.columns if c != config.TARGET]
-    order = corr[config.TARGET].drop(config.TARGET).abs().sort_values(ascending=False).index
+    target_corr = corr[config.TARGET].drop(config.TARGET).abs()
+    order = target_corr.sort_values(ascending=False).index
     selected, dropped = [], {}
     for feat in order:
         conflict = [s for s in selected if abs(corr.loc[feat, s]) >= threshold]
         if conflict:
-            dropped[feat] = conflict[0]
+            dropped[feat] = (f"сильна кореляція з ознакою «{config.LABELS.get(conflict[0])}» "
+                             f"(r = {corr.loc[feat, conflict[0]]:.3f})")
         else:
             selected.append(feat)
+
+    if df is not None:
+        while len(selected) > 2:
+            v = vif(df, selected)
+            if v.max() <= vif_threshold:
+                break
+            worst = v[v >= v.max() - 1e-6].index
+            feat = min(worst, key=lambda f: target_corr[f])
+            value = "∞" if np.isinf(v[feat]) else f"{v[feat]:.1f}"
+            dropped[feat] = (f"мультиколінеарність (VIF = {value}): ознака лінійно "
+                             "виражається через інші відібрані ознаки")
+            selected.remove(feat)
+
     selected = [f for f in features if f in selected]  # зберігаємо початковий порядок
     return selected, dropped
 

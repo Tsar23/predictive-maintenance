@@ -72,6 +72,8 @@ TYPE_NAMES = {"L": "L — низька", "M": "M — середня", "H": "H �
 NUMERIC_RAW = ["air_temp", "process_temp", "rot_speed", "torque", "tool_wear"]
 TARGET = "failure"
 
-# Поріг сильної кореляції (за модулем)
-CORR_THRESHOLD = 0.8
+# Поріг дуже сильної кореляції за модулем (шкала Чеддока: 0,9–1,0 — дуже висока)
+CORR_THRESHOLD = 0.9
+# Поріг коефіцієнта інфляції дисперсії (VIF) для виявлення мультиколінеарності
+VIF_THRESHOLD = 10
 RANDOM_STATE = 42

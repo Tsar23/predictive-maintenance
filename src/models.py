@@ -134,13 +134,33 @@ def train_type_model(df, features):
 
 
 def extract_rules(df, features, depth=3):
-    """Будує неглибоке дерево рішень і повертає зрозумілі людині правила."""
-    from sklearn.tree import export_text
-    tree = DecisionTreeClassifier(max_depth=depth, class_weight="balanced", random_state=RS)
-    tree.fit(df[features], df[config.TARGET])
+    """Будує неглибоке дерево рішень і повертає зрозумілі людині правила.
+
+    Для кожного листка наводиться кількість записів і частка несправностей.
+    """
+    tree = DecisionTreeClassifier(max_depth=depth, min_samples_leaf=20, random_state=RS)
+    y = df[config.TARGET].to_numpy()
+    tree.fit(df[features], y)
+    t = tree.tree_
+    leaf_ids = tree.apply(df[features])
     names = [config.LABELS.get(f, f) for f in features]
-    text = export_text(tree, feature_names=names, decimals=1, show_weights=False)
-    return text.replace("class: 1", "НЕСПРАВНІСТЬ").replace("class: 0", "норма")
+    lines = []
+
+    def walk(node, conditions):
+        if t.children_left[node] == -1:
+            mask = leaf_ids == node
+            share = y[mask].mean() * 100
+            verdict = "ВИСОКИЙ РИЗИК" if share >= 30 else ("підвищений ризик" if share >= 5
+                                                           else "норма")
+            lines.append(f"ЯКЩО {' І '.join(conditions)}\n    ТО {verdict}: "
+                         f"{share:.1f} % несправностей ({mask.sum()} записів)")
+            return
+        name, thr = names[t.feature[node]], t.threshold[node]
+        walk(t.children_left[node], conditions + [f"{name} ≤ {thr:.1f}"])
+        walk(t.children_right[node], conditions + [f"{name} > {thr:.1f}"])
+
+    walk(0, [])
+    return "\n".join(lines)
 
 
 def failure_rate_by_bins(df, column, bins=5):
